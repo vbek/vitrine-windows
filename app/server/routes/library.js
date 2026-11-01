@@ -22,7 +22,8 @@ const MIME = {
 
 const upload = multer({
   storage: multer.diskStorage({
-    destination: config.mediaDir,
+    // Checked on every upload: if the folder goes missing while running, uploads must not all fail until a restart.
+    destination: (_req, _file, cb) => fs.mkdir(config.mediaDir, { recursive: true }, (err) => cb(err, config.mediaDir)),
     filename: (_req, file, cb) => cb(null, `${id()}${path.extname(file.originalname).toLowerCase()}`),
   }),
   limits: { fileSize: config.maxUploadMb * 1048576 },

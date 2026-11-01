@@ -106,6 +106,27 @@ async function loadMedia(url, load) {
   }
 }
 
+// Browsers refuse sound until someone taps the screen or presses a remote button. Videos that should have
+// sound play muted until then, so they don't stall, and come back on with the first press.
+const SOUND_HINT = 'For sound, tap the screen or press OK on the remote';
+const waitingForSound = new Set();
+let soundHint;
+function wantSound(video) {
+  waitingForSound.add(video);
+  if (soundHint || isPreview) return;
+  soundHint = el('div', 'sound-hint', SOUND_HINT);
+  stage.append(soundHint);
+}
+function forgetSound(video) {
+  waitingForSound.delete(video);
+  if (!waitingForSound.size) { soundHint?.remove(); soundHint = null; }
+}
+const turnSoundOn = () => {
+  for (const video of [...waitingForSound]) { video.muted = false; forgetSound(video); }
+};
+document.addEventListener('pointerdown', turnSoundOn);
+document.addEventListener('keydown', turnSoundOn);
+
 // ---------- renderers ----------
 let hlsLoading;
 const loadHls = () => (hlsLoading ||= new Promise((res, rej) => {
@@ -138,14 +159,14 @@ function mount(slide) {
       v.setAttribute('playsinline', ''); // iPhones can hold back loadeddata until playback, but do report metadata
       ready = (async () => {
         let release = () => {};
-        cleanup = () => { v.pause(); v.removeAttribute('src'); v.load(); release(); };
+        cleanup = () => { forgetSound(v); v.pause(); v.removeAttribute('src'); v.load(); release(); };
         const local = await loadMedia(slide.url, (src) => new Promise((res, rej) => { v.onloadeddata = res; v.onloadedmetadata = res; v.onerror = () => rej(new Error('This device cannot play this video')); v.src = src; }));
         release = local.release;
       })();
       start = (onEnd) => {
         v.onended = slide.duration > 0 ? () => { v.currentTime = 0; v.play().catch(() => {}); } : onEnd;
         // Browsers can refuse sound without a user gesture; retry muted rather than stall.
-        v.play().catch(() => { v.muted = true; v.play().catch(onEnd); });
+        v.play().catch(() => { v.muted = true; wantSound(v); v.play().catch(onEnd); });
       };
       node.append(v);
       break;
@@ -579,7 +600,7 @@ function connectEvents() {
     if (msg.type === 'reload') location.reload();
     if (msg.type === 'identify') identify(msg.name);
     if (msg.type === 'unpaired') unpair();
-    if (msg.type === 'mirror') startMirror(msg.id);
+    if (msg.type === 'mirror') startMirror(msg.id, msg.audio);
     if (msg.type === 'mirror-stop') stopMirror();
   };
 }
@@ -589,12 +610,71 @@ async function checkMirror() {
   if (!state.deviceKey) return;
   try {
     const r = await (await fetch('/player-api/mirror', { headers: { 'x-device-key': state.deviceKey }, cache: 'no-store' })).json();
-    if (r.id) startMirror(r.id); else stopMirror();
+    if (r.id) startMirror(r.id, r.audio); else stopMirror();
   } catch { /* checked again when the connection returns */ }
 }
 
-function startMirror(id) {
+const MIRROR_SAMPLE_RATE = 24000;
+
+// Plays the computer's sound as it arrives. Browsers keep audio off until someone taps the screen or
+// presses a remote button, so a paused context asks for that.
+function startMirrorAudio(id, node) {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return () => {};
+  const context = new AudioCtx();
+  const hint = el('div', 'sound-hint', SOUND_HINT);
+  const wake = () => { context.resume().catch(() => {}); };
+  const showHint = () => { if (context.state === 'running') hint.remove(); else node.append(hint); };
+  context.onstatechange = showHint;
+  showHint();
+  wake();
+  document.addEventListener('pointerdown', wake);
+  document.addEventListener('keydown', wake);
+
+  const aborter = new AbortController();
+  let nextStart = 0;
+  const play = (bytes) => {
+    if (context.state !== 'running') return; // don't let sound pile up until it's on
+    // Browsers can hold back the start of a stream and release it in one go. Only the newest sound matches the picture.
+    const all = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+    const samples = all.length > MIRROR_SAMPLE_RATE ? all.subarray(all.length - MIRROR_SAMPLE_RATE / 5) : all;
+    const buffer = context.createBuffer(1, samples.length, MIRROR_SAMPLE_RATE);
+    const channel = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) channel[i] = samples[i] / 32768;
+    // Restart after a gap, and drop audio that has fallen too far behind the picture.
+    const now = context.currentTime;
+    if (nextStart < now) nextStart = now + 0.2;
+    if (nextStart > now + 1) return;
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+    source.start(nextStart);
+    nextStart += buffer.duration;
+  };
+  (async () => {
+    const res = await fetch(`/player-api/mirror/${encodeURIComponent(id)}/audio?key=${encodeURIComponent(state.deviceKey)}`, { signal: aborter.signal, cache: 'no-store' });
+    const reader = res.body.getReader();
+    let odd = null; // network chunks can split a two-byte sample
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      let bytes = value;
+      if (odd !== null) { bytes = new Uint8Array(value.length + 1); bytes[0] = odd; bytes.set(value, 1); odd = null; }
+      if (bytes.length % 2) { odd = bytes[bytes.length - 1]; bytes = bytes.subarray(0, bytes.length - 1); }
+      if (bytes.length) play(bytes.slice());
+    }
+  })().catch(() => {});
+  return () => {
+    aborter.abort();
+    document.removeEventListener('pointerdown', wake);
+    document.removeEventListener('keydown', wake);
+    context.close().catch(() => {});
+  };
+}
+
+function startMirror(id, audio) {
   if (state.mirror?.id === id) return;
+  state.mirror?.stopAudio();
   state.mirror?.node.remove();
   // Stop the playlist so its video and sound don't carry on underneath.
   state.seq?.stop();
@@ -607,12 +687,13 @@ function startMirror(id) {
   img.src = `/player-api/mirror/${encodeURIComponent(id)}/stream?key=${encodeURIComponent(state.deviceKey)}`;
   node.append(img);
   stage.append(node);
-  state.mirror = { id, node };
+  state.mirror = { id, node, stopAudio: audio ? startMirrorAudio(id, node) : () => {} };
   heartbeat();
 }
 
 function stopMirror() {
   if (!state.mirror) return;
+  state.mirror.stopAudio();
   state.mirror.node.querySelector('img').removeAttribute('src');
   state.mirror.node.remove();
   state.mirror = null;

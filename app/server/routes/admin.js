@@ -69,6 +69,7 @@ admin.get('/audit', security, (req, res) => {
 
 // A consistent snapshot of the database. Media files are backed up by copying data/media.
 admin.get('/backup', requireArea('owner'), (req, res) => {
+  fs.mkdirSync(config.backupDir, { recursive: true });
   const file = path.join(config.backupDir, `vitrine-${new Date().toISOString().replace(/[:.]/g, '-')}.db`);
   db.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
   audit(req, 'backup.downloaded');

@@ -141,7 +141,7 @@ const mirrorFor = (screenId) => [...mirrors.values()].find((m) => m.screens.has(
 
 function endMirror(m) {
   mirrors.delete(m.id);
-  for (const viewer of m.viewers) viewer.end();
+  for (const viewer of [...m.viewers, ...m.listeners]) viewer.end();
   for (const sid of m.screens) sendToScreen(sid, { type: 'mirror-stop' });
 }
 // The sender sends continuously, so silence means its tab closed or the computer went to sleep.
@@ -159,9 +159,9 @@ fleet.post('/mirror', deviceArea, (req, res) => {
     earlier.screens.delete(s.id);
     if (!earlier.screens.size) endMirror(earlier);
   }
-  const m = { id: id(), userId: req.user.id, screens: new Set(ids), viewers: new Set(), frame: null, lastFrame: Date.now() };
+  const m = { id: id(), userId: req.user.id, screens: new Set(ids), viewers: new Set(), listeners: new Set(), audio: Boolean(req.body?.audio), frame: null, lastFrame: Date.now() };
   mirrors.set(m.id, m);
-  for (const sid of ids) sendToScreen(sid, { type: 'mirror', id: m.id });
+  for (const sid of ids) sendToScreen(sid, { type: 'mirror', id: m.id, audio: m.audio });
   audit(req, 'screen.mirror', rows.map((s) => s.name).join(', '));
   res.status(201).json({ id: m.id });
 });
@@ -179,6 +179,13 @@ fleet.post('/mirror/:id/frame', deviceArea, express.raw({ type: 'image/jpeg', li
   m.lastFrame = Date.now();
   // A slow screen skips frames rather than falling further and further behind.
   for (const viewer of m.viewers) if (!viewer.writableNeedDrain) writeFrame(viewer, m.frame);
+  res.json({ ok: true });
+});
+
+// Raw 16-bit mono samples. Video players can't start on a live stream on every TV, but all of them can schedule these.
+fleet.post('/mirror/:id/audio', deviceArea, express.raw({ type: 'application/octet-stream', limit: '1mb' }), (req, res) => {
+  const m = ownMirror(req);
+  if (Buffer.isBuffer(req.body)) for (const listener of m.listeners) if (!listener.writableNeedDrain) listener.write(req.body);
   res.json({ ok: true });
 });
 
@@ -454,7 +461,8 @@ playerApi.get('/events', (req, res) => {
 playerApi.get('/mirror', (req, res) => {
   const screen = screenByKey(req.get('x-device-key'));
   if (!screen) throw new HttpError(404, 'Unknown device');
-  res.set('Cache-Control', 'no-store').json({ id: mirrorFor(screen.id)?.id || null });
+  const m = mirrorFor(screen.id);
+  res.set('Cache-Control', 'no-store').json({ id: m?.id || null, audio: Boolean(m?.audio) });
 });
 
 // A plain <img> can show this stream, so it works in TV browsers without any video support.
@@ -467,6 +475,16 @@ playerApi.get('/mirror/:id/stream', (req, res) => {
   if (m.frame) writeFrame(res, m.frame);
   m.viewers.add(res);
   req.on('close', () => m.viewers.delete(res));
+});
+
+playerApi.get('/mirror/:id/audio', (req, res) => {
+  const screen = screenByKey(req.query.key);
+  const m = mirrors.get(req.params.id);
+  if (!screen || !m?.screens.has(screen.id)) throw new HttpError(404, 'Not found');
+  res.set({ 'Content-Type': 'audio/L16;rate=24000;channels=1', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+  res.flushHeaders();
+  m.listeners.add(res);
+  req.on('close', () => m.listeners.delete(res));
 });
 
 playerApi.post('/heartbeat', (req, res) => {

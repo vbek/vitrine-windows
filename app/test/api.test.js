@@ -232,13 +232,21 @@ test('mirroring: relays frames only to chosen screens, and only for signed-in us
   assert.equal((await anon.post('/api/mirror', { screenIds: [a.id] })).status, 401);
   assert.equal((await owner.post('/api/mirror', { screenIds: [] })).status, 400);
   assert.equal((await owner.post('/api/mirror', { screenIds: ['nope'] })).status, 404);
-  const { id } = (await owner.post('/api/mirror', { screenIds: [a.id] })).body;
-  assert.equal((await anon.get('/player-api/mirror', { 'x-device-key': keyA })).body.id, id);
+  const { id } = (await owner.post('/api/mirror', { screenIds: [a.id], audio: true })).body;
+  assert.deepEqual((await anon.get('/player-api/mirror', { 'x-device-key': keyA })).body, { id, audio: true });
   assert.equal((await anon.get('/player-api/mirror', { 'x-device-key': keyB })).body.id, null);
   const sendFrame = (headers) => fetch(`${base}/api/mirror/${id}/frame`, { method: 'POST', headers: { 'Content-Type': 'image/jpeg', ...headers }, body: Buffer.from('frame-bytes') });
   assert.equal((await sendFrame({})).status, 401);
   assert.equal((await sendFrame({ cookie: owner.cookie })).status, 200);
   assert.equal((await anon.get(`/player-api/mirror/${id}/stream?key=${keyB}`)).status, 404, 'other screens cannot watch');
+  assert.equal((await anon.get(`/player-api/mirror/${id}/audio?key=${keyB}`)).status, 404, 'other screens cannot listen');
+  const sendAudio = (headers) => fetch(`${base}/api/mirror/${id}/audio`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...headers }, body: Buffer.from([1, 0, 2, 0]) });
+  assert.equal((await sendAudio({})).status, 401);
+  const listening = new AbortController();
+  const sound = await fetch(`${base}/player-api/mirror/${id}/audio?key=${keyA}`, { signal: listening.signal });
+  assert.equal((await sendAudio({ cookie: owner.cookie })).status, 200);
+  assert.deepEqual([...(await sound.body.getReader().read()).value], [1, 0, 2, 0]);
+  listening.abort();
   const watching = new AbortController();
   const stream = await fetch(`${base}/player-api/mirror/${id}/stream?key=${keyA}`, { signal: watching.signal });
   assert.match(stream.headers.get('content-type'), /multipart\/x-mixed-replace/);
@@ -413,4 +421,13 @@ test('audit log and unknown API routes', async () => {
   const log = (await owner.get('/api/audit')).body;
   assert.ok(log.some((a) => a.action === 'user.login'));
   assert.equal((await owner.get('/api/nope')).status, 404);
+});
+
+test('uploads still work if the media folder disappears while running', async () => {
+  fs.rmSync(path.join(dataDir, 'media'), { recursive: true, force: true });
+  const form = new FormData();
+  form.append('file', new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAcCBlCwAAAABJRU5ErkJggg==', 'base64')], { type: 'image/png' }), 'back.png');
+  const res = await fetch(`${base}/api/content/upload`, { method: 'POST', body: form, headers: { cookie: owner.cookie } });
+  assert.equal(res.status, 201);
+  assert.ok(fs.existsSync(path.join(dataDir, (await res.json()).url)));
 });

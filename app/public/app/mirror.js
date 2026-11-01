@@ -1,5 +1,5 @@
-// Mirrors this computer's screen as a stream of JPEG pictures. There's no sound, but it works in
-// every browser that can show an image, which matters for older TVs.
+// Mirrors this computer's screen as a stream of JPEG pictures plus raw audio samples. That's less
+// smooth than a video call, but works in every browser that can show an image, including older TVs.
 import { h, btn, modal, toast, safely, check } from './ui.js';
 import { api } from './api.js';
 import { t } from './i18n.js';
@@ -7,6 +7,43 @@ import { t } from './i18n.js';
 const FRAMES_PER_SECOND = 8;
 const MAX_WIDTH = 1280;
 const JPEG_QUALITY = 0.7;
+const AUDIO_SAMPLE_RATE = 24000;
+const AUDIO_CHUNK_SAMPLES = AUDIO_SAMPLE_RATE / 5;
+
+// Runs on the audio thread, so sound keeps flowing while the studio tab is hidden.
+const AUDIO_WORKLET = `registerProcessor('mirror-capture', class extends AudioWorkletProcessor {
+  process([input]) {
+    if (input[0]) this.port.postMessage(input[0].slice());
+    return true;
+  }
+});`;
+
+async function captureAudio(track, id) {
+  const context = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE });
+  const url = URL.createObjectURL(new Blob([AUDIO_WORKLET], { type: 'text/javascript' }));
+  await context.audioWorklet.addModule(url);
+  URL.revokeObjectURL(url);
+  const capture = new AudioWorkletNode(context, 'mirror-capture');
+  const silent = context.createGain();
+  silent.gain.value = 0; // the graph must reach the output to run, but this computer already plays its own sound
+  context.createMediaStreamSource(new MediaStream([track])).connect(capture);
+  capture.connect(silent);
+  silent.connect(context.destination);
+
+  let chunk = new Int16Array(AUDIO_CHUNK_SAMPLES);
+  let filled = 0;
+  capture.port.onmessage = ({ data }) => {
+    for (const sample of data) {
+      chunk[filled++] = Math.max(-1, Math.min(1, sample)) * 32767;
+      if (filled < chunk.length) continue;
+      fetch(`/api/mirror/${id}/audio`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: chunk.buffer }).catch(() => {});
+      chunk = new Int16Array(AUDIO_CHUNK_SAMPLES);
+      filled = 0;
+    }
+  };
+  await context.resume();
+  return () => context.close();
+}
 
 let active = null;
 
@@ -22,9 +59,10 @@ const steadyTimer = (ms, fn) => {
 
 async function stopMirroring() {
   if (!active) return;
-  const { id, stream, stopTimer, bar } = active;
+  const { id, stream, stopTimer, stopAudio, bar } = active;
   active = null;
   stopTimer();
+  stopAudio?.();
   stream.getTracks().forEach((track) => track.stop());
   bar.remove();
   await api.del(`/mirror/${id}`).catch(() => {}); // already ended on the server
@@ -32,10 +70,11 @@ async function stopMirroring() {
 
 async function startMirroring(screens) {
   await stopMirroring();
-  const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: FRAMES_PER_SECOND }, audio: false });
+  const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: FRAMES_PER_SECOND }, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, systemAudio: 'include' });
+  const audioTrack = stream.getAudioTracks()[0];
   let id;
   try {
-    ({ id } = await api.post('/mirror', { screenIds: screens.map((s) => s.id) }));
+    ({ id } = await api.post('/mirror', { screenIds: screens.map((s) => s.id), audio: Boolean(audioTrack) }));
   } catch (e) {
     stream.getTracks().forEach((track) => track.stop());
     throw e;
@@ -69,6 +108,8 @@ async function startMirroring(screens) {
     btn(t('Stop'), safely(stopMirroring), 'sm danger'));
   document.body.append(bar);
   active = { id, stream, bar, stopTimer: steadyTimer(1000 / FRAMES_PER_SECOND, sendFrame) };
+  if (audioTrack) active.stopAudio = await captureAudio(audioTrack, id).catch(() => { toast(t('The sound could not be shared.'), true); });
+  else toast(t('No sound is being shared. To include it, stop, then share your entire screen with system audio turned on.'), true);
   // Also covers the browser's own "Stop sharing" button.
   stream.getVideoTracks()[0].addEventListener('ended', () => stopMirroring());
 }
@@ -87,8 +128,9 @@ export function mirrorDialog(screens, preselected = []) {
   modal({
     title: t('Mirror this computer'),
     body: [
-      h('p', { class: 'small muted', style: { margin: 0 } }, t('Shows this computer\'s screen on the screens you choose, without sound. They go back to their playlists when you stop.')),
+      h('p', { class: 'small muted', style: { margin: 0 } }, t('Shows this computer\'s screen on the screens you choose. They go back to their playlists when you stop.')),
       h('div', { class: 'stack' }, screens.map((s) => check(s.online ? s.name : `${s.name} (${t('Offline')})`, chosen.has(s.id), (on) => { if (on) chosen.add(s.id); else chosen.delete(s.id); }))),
+      h('p', { class: 'small muted', style: { margin: 0 } }, t('For sound, choose your entire screen in the next window and turn on system audio.')),
       h('p', { class: 'small muted', style: { margin: 0 } }, t('Don\'t show anything private: everyone who can see these screens will see it.')),
     ],
     foot: (close) => [btn(t('Cancel'), close), btn(t('Start mirroring'), safely(async () => {
