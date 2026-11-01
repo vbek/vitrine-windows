@@ -24,10 +24,15 @@ const setupAllowed = (req) => !config.localSetup
   || (LOOPBACK.has(req.socket.remoteAddress) && LOCAL_HOST.test(req.headers.host || ''));
 
 // On the desktop app the studio is opened at localhost, which means nothing to another device.
+// Windows often lists virtual adapters first, and their addresses can't be reached from a phone or TV.
+const VIRTUAL_ADAPTER = /vEthernet|Hyper-V|WSL|VirtualBox|VMware|Docker|Tailscale|ZeroTier|VPN|Bluetooth/i;
 const networkOrigin = () => {
-  const ip = Object.values(os.networkInterfaces()).flat()
-    .find((n) => n.family === 'IPv4' && !n.internal && !n.address.startsWith('169.254.'))?.address;
-  return ip ? `http://${ip}:${config.port}` : null;
+  const found = Object.entries(os.networkInterfaces())
+    .flatMap(([adapter, list]) => list.map((n) => ({ ...n, adapter })))
+    .filter((n) => n.family === 'IPv4' && !n.internal && !n.address.startsWith('169.254.'));
+  const ip = (found.find((n) => !VIRTUAL_ADAPTER.test(n.adapter)) || found[0])?.address;
+  if (!ip) return null;
+  return config.shortAddressActive ? `http://${ip}` : `http://${ip}:${config.port}`;
 };
 
 account.get('/auth/state', (req, res) => {

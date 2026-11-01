@@ -62,7 +62,7 @@ body.locked iframe, body.locked video { pointer-events: none; }
 .card .mark i { width: 1.6cqw; height: 1.6cqw; background: #e4572e; display: block; }
 .card .mark img { height: 3cqw; }
 .card h1 { font: 600 5cqw/1.1 'Bricolage', system-ui, sans-serif; margin: 0; letter-spacing: -.02em; }
-.card p { margin: 0; font-size: 2cqw; color: #bdb8ab; max-width: 70cqw; line-height: 1.4; }
+.card p { margin: 0; font-size: max(2cqw, 15px); color: #bdb8ab; max-width: max(70cqw, 280px); line-height: 1.4; }
 .code { font: 700 13cqw/1 'Bricolage', system-ui, sans-serif; letter-spacing: .06em; color: #fff; display: flex; gap: .15em; flex-wrap: wrap; }
 .code span { border-bottom: .6cqw solid #e4572e; padding-bottom: .1em; min-width: .75em; text-align: center; }
 .splash { transition: opacity .6s; }

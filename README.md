@@ -42,7 +42,8 @@ This creates `dist/Vitrine-Windows-x64.zip` and updates `site/release.js` with t
 - [ ] After Extract All, "Start Vitrine" opens the browser, including through any SmartScreen warning.
 - [ ] A phone on the same Wi-Fi sees "Finish setup on the computer" before the owner account exists.
 - [ ] The PC can create the owner account, and the phone can then sign in.
-- [ ] The address on the Today page works on a phone and shows a pairing code, and that code pairs the screen.
+- [ ] In Screens > Add a screen, scanning the QR code with a phone connects it without typing anything.
+- [ ] On a smart TV, the address in that dialog shows a code, the TV appears in the dialog, and Connect pairs it.
 - [ ] Data is still there after closing the window and starting Vitrine again.
 - [ ] Data is still there after deleting the app folder and extracting the zip again.
 

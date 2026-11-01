@@ -209,6 +209,22 @@ test('pairing: unpaired devices get nothing; a code binds exactly once', async (
   assert.equal((await anon.get('/player-api/manifest', { 'x-device-key': key })).status, 200);
 });
 
+test('QR invites: pair a device directly, once, and only for signed-in users', async () => {
+  const origin = 'http://192.168.1.20';
+  assert.equal((await anon.post('/api/screens/invites', { origin })).status, 401);
+  assert.equal((await owner.post('/api/screens/invites', { origin: 'javascript:alert(1)' })).status, 400);
+  const invite = (await owner.post('/api/screens/invites', { origin })).body;
+  assert.match(invite.url, /^http:\/\/192\.168\.1\.20\/tv\?invite=[\w-]+$/);
+  assert.match(invite.qr, /<svg/);
+  const token = new URL(invite.url).searchParams.get('invite');
+  const key = 'device-key-qrqrqrqrqrqrqrqrqrqrqr';
+  assert.equal((await anon.post('/player-api/register', { key: 'device-key-wrongwrongwrongwrong', invite: 'nope' })).body.paired, false, 'a bad invite falls back to a code');
+  assert.equal((await anon.post('/player-api/register', { key, invite: token })).body.paired, true);
+  assert.equal((await anon.get('/player-api/manifest', { 'x-device-key': key })).status, 200);
+  assert.equal((await anon.post('/player-api/register', { key: 'device-key-secondsecondsecondsec', invite: token })).body.paired, false, 'single use');
+  assert.deepEqual((await owner.get('/api/screens/waiting')).body, { supported: false, waiting: [] }, 'no device list on a server install');
+});
+
 test('screen resolution: own playlist beats group, rules are delivered, removal unpairs', async () => {
   const p1 = (await owner.post('/api/playlists', { name: 'p1' })).body;
   const p2 = (await owner.post('/api/playlists', { name: 'p2' })).body;

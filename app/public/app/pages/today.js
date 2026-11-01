@@ -1,7 +1,7 @@
 import { h, icon, btn, empty, safely, timeAgo } from '../ui.js';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { go, can, screenOrigin } from '../app.js';
+import { go, can } from '../app.js';
 import { openScreen } from './screens.js';
 
 export function screenCard(s, onOpen) {
@@ -69,5 +69,5 @@ function onboarding() {
   return h('div', { class: 'grid3' },
     step(1, t('Add content'), t('Pictures, videos, PDFs, web pages, or text.'), btn(t('Open library'), () => go('/library'), 'primary')),
     step(2, t('Build a playlist'), t('Put items in order and decide when each one plays.'), can('content') ? btn(t('Open playlists'), () => go('/playlists')) : null),
-    step(3, t('Pair a screen'), `${t('Open this address on the display:')} ${screenOrigin()}/tv`, btn(t('Open screens'), () => go('/screens'))));
+    step(3, t('Pair a screen'), t('Scan a QR code with a phone, or open a short address on a TV.'), btn(t('Open screens'), () => go('/screens'))));
 }

@@ -10,6 +10,7 @@ const url = `http://localhost:${PORT}`;
 // In the profile, not the app folder, so replacing the app with a new version keeps the data.
 process.env.VITRINE_DATA_DIR ||= path.join(process.env.LOCALAPPDATA || os.homedir(), 'Vitrine', 'data');
 process.env.VITRINE_LOCAL_SETUP = 'true';
+process.env.VITRINE_SHORT_ADDRESS = 'true';
 process.env.PORT = String(PORT);
 
 const openBrowser = () => process.env.VITRINE_NO_BROWSER || spawn('rundll32', ['url.dll,FileProtocolHandler', url], { detached: true, stdio: 'ignore' }).unref();
@@ -49,7 +50,8 @@ On this PC:  ${url}
 Your data:   ${process.env.VITRINE_DATA_DIR}
 `);
 if (lan.length) {
-  console.log('On a phone or another screen on the same Wi-Fi, try:');
+  console.log('To add a phone or TV, open Screens in Vitrine and choose Add a screen.');
+  console.log('To manage Vitrine from another device on the same Wi-Fi, try:');
   for (const n of lan) console.log(`  http://${n.address}:${PORT}`);
   console.log('If Windows asks, allow Vitrine on private networks.\n');
 }

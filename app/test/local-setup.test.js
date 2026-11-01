@@ -63,3 +63,24 @@ test('this computer can create the owner, and other devices can then sign in', a
   assert.equal(fromLan.screenOrigin, null);
   assert.equal((await send('POST', lanIp, '/api/auth/login', owner)).status, 200);
 });
+
+test('a waiting TV is listed by name, connects in one step, and leaves the list', async () => {
+  const login = await fetch(`http://127.0.0.1:${PORT}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(owner) });
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const api = async (method, urlPath, body) => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api${urlPath}`, { method, headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const tv = await fetch(`http://127.0.0.1:${PORT}/player-api/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36' },
+    body: JSON.stringify({ key: 'device-key-tvtvtvtvtvtvtvtvtvtvtv' }),
+  }).then((r) => r.json());
+  assert.equal(tv.listed, true);
+  const { waiting } = (await api('GET', '/screens/waiting')).body;
+  assert.deepEqual(waiting.map((d) => [d.code, d.device]), [[tv.code, 'LG TV']]);
+  const screen = await api('POST', '/screens/pair', { code: tv.code });
+  assert.equal(screen.status, 201);
+  assert.equal(screen.body.name, 'LG TV');
+  assert.deepEqual((await api('GET', '/screens/waiting')).body.waiting, []);
+});

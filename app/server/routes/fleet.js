@@ -1,6 +1,8 @@
 // Screens, groups, dayparting rules, broadcasts, and the player-facing endpoints.
 import crypto from 'node:crypto';
 import { Router } from 'express';
+import QRCode from 'qrcode';
+import { config } from '../config.js';
 import { all, get, run, id, now, parse, tx, getSettings } from '../db.js';
 import { HttpError, requireArea, requireAuth, loadScoped, scoped, teamFor, sha256 } from '../auth.js';
 import { audit, emit, addPlayerStream, sendToScreen, refreshPlayers, notifyAdmins } from '../events.js';
@@ -32,17 +34,72 @@ function thumbOf(contentId) {
 // ---------- screens ----------
 fleet.get('/screens', requireAuth, (req, res) => res.json(scoped(req.user, all('SELECT * FROM screens ORDER BY name')).map(screenOut)));
 
+// A readable default name, so a screen connected without typing is still recognisable in the list.
+const DEVICE_NAMES = [
+  [/Tizen|SAMSUNG.*TV/i, 'Samsung TV'], [/Web0S|webOS/i, 'LG TV'], [/BRAVIA/i, 'Sony TV'], [/\bAFT[A-Z]/, 'Fire TV'],
+  [/Android TV|GoogleTV|CrKey/i, 'Android TV'], [/SMART-?TV|HbbTV|\bTV\b/i, 'TV'],
+  [/iPhone/, 'iPhone'], [/iPad/, 'iPad'], [/Android.*Mobile/, 'Android phone'], [/Android/, 'Android tablet'],
+  [/Windows/, 'Windows PC'], [/Macintosh/, 'Mac'], [/CrOS/, 'Chromebook'], [/Linux/, 'Linux computer'],
+];
+const deviceName = (userAgent) => DEVICE_NAMES.find(([re]) => re.test(userAgent || ''))?.[1] || 'Screen';
+
+function uniqueName(base) {
+  let name = base;
+  for (let n = 2; get('SELECT 1 AS x FROM screens WHERE name=?', name); n++) name = `${base} ${n}`;
+  return name;
+}
+
+function addScreen(hash, name, { location, groupId, playlistId, teamId }) {
+  const sid = id();
+  tx(() => {
+    run('INSERT INTO screens(id,name,location,device_key_hash,group_id,playlist_id,team_id,created_at) VALUES(?,?,?,?,?,?,?,?)',
+      sid, name, location || '', hash, groupId || null, playlistId || null, teamId || null, now());
+    run('DELETE FROM pairings WHERE device_key_hash=?', hash);
+  });
+  return sid;
+}
+
+// Devices showing a pairing code, by code. Each one polls, so this only needs to outlive a poll or two.
+const waitingDevices = new Map();
+const WAITING_FOR_MS = 10e3;
+const PRIVATE_ADDRESS = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|f[cd]|fe80:)/i;
+const plainIp = (ip) => String(ip || '').replace(/^::ffff:/, '');
+
+// QR codes connect a device without a code. They're held in memory because they only last minutes.
+const invites = new Map();
+const INVITE_MS = 10 * 60e3;
+
+fleet.post('/screens/invites', deviceArea, async (req, res) => {
+  const origin = String(req.body?.origin || '');
+  if (!/^https?:\/\/[^/?#\s]+$/.test(origin)) throw new HttpError(400, 'Invalid address');
+  for (const [hash, invite] of invites) if (invite.expires < Date.now()) invites.delete(hash);
+  const token = crypto.randomBytes(16).toString('base64url');
+  const expires = Date.now() + INVITE_MS;
+  invites.set(sha256(token), { expires, teamId: teamFor(req.user) });
+  const url = `${origin}/tv?invite=${token}`;
+  res.status(201).json({ url, expiresAt: new Date(expires).toISOString(), qr: await QRCode.toString(url, { type: 'svg', margin: 2 }) });
+});
+
+// Only on the desktop app: on a server reachable from the internet, anyone could put a device in this list.
+fleet.get('/screens/waiting', deviceArea, (_req, res) => {
+  if (!config.localSetup) return res.json({ supported: false, waiting: [] });
+  const live = new Set(all('SELECT code FROM pairings WHERE expires_at>?', now()).map((p) => p.code));
+  const waiting = [];
+  for (const [code, d] of waitingDevices) {
+    if (!live.has(code) || Date.now() - d.seen > WAITING_FOR_MS) waitingDevices.delete(code);
+    else waiting.push({ code, device: d.device, ip: d.ip });
+  }
+  res.json({ supported: true, waiting });
+});
+
 fleet.post('/screens/pair', deviceArea, (req, res) => {
   const code = String(req.body?.code || '').replace(/[\s-]/g, '').toUpperCase();
   const pairing = get('SELECT * FROM pairings WHERE code=? AND expires_at>?', code, now());
   if (!pairing) throw new HttpError(404, 'That code was not found. Check the screen, as codes change every 15 minutes.');
-  const sid = id();
-  const name = String(req.body?.name || '').trim() || `Screen ${get('SELECT COUNT(*) AS n FROM screens').n + 1}`;
-  tx(() => {
-    run('INSERT INTO screens(id,name,location,device_key_hash,group_id,playlist_id,team_id,created_at) VALUES(?,?,?,?,?,?,?,?)',
-      sid, name, req.body.location || '', pairing.device_key_hash, req.body.groupId || null, req.body.playlistId || null, teamFor(req.user), now());
-    run('DELETE FROM pairings WHERE code=?', code);
-  });
+  const device = waitingDevices.get(code)?.device;
+  const name = String(req.body?.name || '').trim() || (device ? uniqueName(device) : `Screen ${get('SELECT COUNT(*) AS n FROM screens').n + 1}`);
+  const sid = addScreen(pairing.device_key_hash, name, { ...req.body, teamId: teamFor(req.user) });
+  waitingDevices.delete(code);
   audit(req, 'screen.paired', name);
   res.status(201).json(screenOut(get('SELECT * FROM screens WHERE id=?', sid)));
 });
@@ -270,6 +327,17 @@ playerApi.post('/register', (req, res) => {
   const hash = sha256(key);
   const screen = get('SELECT id,name FROM screens WHERE device_key_hash=?', hash);
   if (screen) return res.json({ paired: true, name: screen.name });
+  const inviteHash = req.body?.invite ? sha256(String(req.body.invite)) : null;
+  const invite = invites.get(inviteHash);
+  if (invite) {
+    invites.delete(inviteHash); // single use, so a QR code photographed later adds nothing
+    if (invite.expires > Date.now()) {
+      const name = uniqueName(deviceName(req.get('user-agent')));
+      addScreen(hash, name, { teamId: invite.teamId });
+      audit(req, 'screen.paired', name);
+      return res.json({ paired: true, name });
+    }
+  }
   run('DELETE FROM pairings WHERE expires_at<?', now());
   let pairing = get('SELECT * FROM pairings WHERE device_key_hash=?', hash);
   if (!pairing) {
@@ -280,7 +348,9 @@ playerApi.post('/register', (req, res) => {
     pairing = { code: newCode(), expires_at: new Date(Date.now() + 15 * 60e3).toISOString() };
     run('INSERT INTO pairings(code,device_key_hash,expires_at) VALUES(?,?,?)', pairing.code, hash, pairing.expires_at);
   }
-  res.json({ paired: false, code: pairing.code, expiresAt: pairing.expires_at });
+  const ip = plainIp(req.ip);
+  if (config.localSetup && PRIVATE_ADDRESS.test(ip)) waitingDevices.set(pairing.code, { device: deviceName(req.get('user-agent')), ip, seen: Date.now() });
+  res.json({ paired: false, code: pairing.code, expiresAt: pairing.expires_at, listed: waitingDevices.has(pairing.code) });
 });
 
 function resolveTarget(req) {

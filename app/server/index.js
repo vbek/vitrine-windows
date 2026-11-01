@@ -129,6 +129,11 @@ server.listen(config.port, config.host, () => {
   if (!all('SELECT id FROM users LIMIT 1').length) console.log('Open it in a browser to create the owner account.');
 });
 
+// Typing a colon on a TV remote is slow, so also answer on port 80 when nothing else is using it.
+if (config.shortAddress && !config.https) {
+  http.createServer(app).on('error', () => {}).listen(80, config.host, () => { config.shortAddressActive = true; });
+}
+
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => { stopAllStreams(); process.exit(0); });
 }

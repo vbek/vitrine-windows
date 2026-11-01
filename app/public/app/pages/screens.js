@@ -97,31 +97,93 @@ export async function openScreen(s) {
 }
 
 function addScreenDialog(groups, playlists) {
-  const code = h('input', { placeholder: 'ABC123', autocomplete: 'off', style: { fontFamily: 'var(--display)', fontSize: '28px', fontWeight: 700, letterSpacing: '.2em', textTransform: 'uppercase', textAlign: 'center' }, maxlength: 7, 'aria-label': t('Pairing code') });
-  const name = h('input', { placeholder: t('Front window') });
-  let groupId = '', playlistId = '';
-  const tv = `${screenOrigin()}/tv`;
+  const origin = screenOrigin();
+  const tv = `${origin}/tv`;
+  const noNetwork = /^https?:\/\/(localhost|127\.|\[::1\])/.test(origin);
+  let groupId = '', playlistId = playlists.length === 1 ? playlists[0].id : '';
+
+  const qr = h('div', { class: 'qr' });
+  const waitingList = h('div', { class: 'stack', 'aria-live': 'polite' });
+  const connected = h('div', { class: 'row' });
+  const code = h('input', { placeholder: 'ABC123', autocomplete: 'off', style: { fontFamily: 'var(--display)', fontSize: '22px', fontWeight: 700, letterSpacing: '.2em', textTransform: 'uppercase', textAlign: 'center' }, maxlength: 7, 'aria-label': t('Pairing code') });
+  const codeEntry = h('details', {}, h('summary', { style: { cursor: 'pointer', fontWeight: 600 } }, t('Enter a code instead')),
+    h('div', { class: 'row', style: { marginTop: '8px', flexWrap: 'nowrap' } }, h('div', { class: 'grow' }, code),
+      btn(t('Connect'), safely(async () => { await pair(code.value); code.value = ''; }), 'primary')));
+
+  let closed = false, known = null, inviteExpires = 0, timer, changed = false;
+  const mintInvite = async () => {
+    const invite = await api.post('/screens/invites', { origin });
+    inviteExpires = new Date(invite.expiresAt).getTime();
+    qr.innerHTML = invite.qr;
+  };
+  const drawWaiting = ({ supported, waiting }) => {
+    if (!supported) codeEntry.open = true;
+    waitingList.replaceChildren(...(waiting.length
+      ? waiting.map((d) => h('div', { class: 'row between', style: { flexWrap: 'nowrap' } },
+        h('div', { class: 'grow' },
+          h('div', { style: { fontWeight: 600 } }, d.device),
+          h('div', { class: 'small muted mono' }, `${d.code} · ${d.ip}`)),
+        btn(t('Connect'), safely(() => pair(d.code)), 'sm primary')))
+      : supported ? [h('div', { class: 'small muted row' }, h('span', { class: 'dot on' }), t('Looking for screens on your network…'))] : []));
+  };
+  // Checks for screens that have joined, by any route, and gives each the chosen playlist and group.
+  const check = async () => {
+    const [screens, waiting] = await Promise.all([api.get('/screens'), api.get('/screens/waiting')]);
+    if (closed) return;
+    drawWaiting(waiting);
+    const added = known ? screens.filter((s) => !known.has(s.id)) : [];
+    known = new Set(screens.map((s) => s.id));
+    for (const s of added) {
+      changed = true;
+      if (playlistId || groupId) await api.patch(`/screens/${s.id}`, { playlistId, groupId });
+      connected.append(h('span', { class: 'chip live' }, icon('check'), s.name));
+      toast(t('{name} is connected', { name: s.name }));
+    }
+    // Codes are single use and short-lived, so keep a fresh one on show.
+    if (!noNetwork && (added.length || inviteExpires - Date.now() < 60e3)) await mintInvite();
+  };
+  const pair = async (value) => {
+    await api.post('/screens/pair', { code: value });
+    await check();
+  };
+  const poll = async () => {
+    try { await check(); } catch { /* retried on the next tick */ }
+    if (!closed) timer = setTimeout(poll, 2000);
+  };
+
   modal({
-    title: t('Add a screen'),
+    title: t('Add a screen'), wide: true,
+    onClose: () => { closed = true; clearTimeout(timer); if (changed) refresh(); },
     body: [
-      h('ol', { style: { margin: 0, paddingLeft: '20px' }, class: 'stack' },
-        h('li', {}, t('On the display, open this address in a browser:'), h('div', { class: 'row', style: { marginTop: '6px', flexWrap: 'nowrap' } }, h('div', { class: 'code-block grow' }, tv), copyButton(tv))),
-        h('li', {}, t('A six-character code appears. Enter it here:'), h('div', { style: { marginTop: '6px' } }, code))),
-      field(t('Name'), name),
-      h('div', { class: 'grid2' },
-        field(t('Playlist'), select(options(playlists, t('Choose later')), '', (v) => { playlistId = v; })),
+      noNetwork && h('p', { style: { margin: 0 } }, t('This computer isn\'t connected to a network. Connect it to Wi-Fi or Ethernet, then open this again.')),
+      !noNetwork && h('div', { class: 'grid2' },
+        h('section', { class: 'stack' },
+          h('h3', { style: { margin: 0, fontWeight: 600 } }, t('Phone or tablet')),
+          h('p', { class: 'small muted', style: { margin: 0 } }, t('Scan this with the camera and open the link. It connects by itself.')),
+          qr),
+        h('section', { class: 'stack' },
+          h('h3', { style: { margin: 0, fontWeight: 600 } }, t('TV or computer')),
+          h('p', { class: 'small muted', style: { margin: 0 } }, t('Open the web browser on the TV and go to this address. It then appears below.')),
+          h('div', { class: 'code-block', style: { fontSize: '18px', fontWeight: 600 } }, tv.replace(/^http:\/\//, '')),
+          waitingList,
+          codeEntry)),
+      connected,
+      !noNetwork && h('div', { class: 'grid2' },
+        field(t('Play on new screens'), select(options(playlists, t('Choose later')), playlistId, (v) => { playlistId = v; })),
         field(t('Group'), select(options(groups, t('No group')), '', (v) => { groupId = v; }))),
-      h('details', {}, h('summary', { style: { cursor: 'pointer', fontWeight: 600 } }, t('Run it full screen when the display starts')),
+      !noNetwork && h('details', {}, h('summary', { style: { cursor: 'pointer', fontWeight: 600 } }, t('Can\'t connect?')),
+        h('ul', { class: 'small muted', style: { paddingLeft: '20px', marginBottom: 0 } },
+          h('li', {}, t('Put the device on the same Wi-Fi as this computer. Guest networks usually keep devices apart.')),
+          h('li', {}, t('If Windows asks, allow Vitrine on private networks, and set this Wi-Fi to Private in Windows Settings.')),
+          h('li', {}, t('Turn off auto-lock on phones and tablets so they stay on.')))),
+      !noNetwork && h('details', {}, h('summary', { style: { cursor: 'pointer', fontWeight: 600 } }, t('Run it full screen when the display starts')),
         h('p', { class: 'small muted' }, t('Any Chromium browser can start straight into the player:')),
-        h('div', { class: 'code-block' }, `chromium --kiosk --autoplay-policy=no-user-gesture-required --noerrdialogs ${tv}`),
+        h('div', { class: 'row', style: { flexWrap: 'nowrap' } }, h('div', { class: 'code-block grow' }, `chromium --kiosk --autoplay-policy=no-user-gesture-required --noerrdialogs ${tv}`), copyButton(`chromium --kiosk --autoplay-policy=no-user-gesture-required --noerrdialogs ${tv}`)),
         h('p', { class: 'small muted' }, t('The scripts folder has ready-made setup for Raspberry Pi and Windows. Smart TVs can open the address in their built-in browser.'))),
     ],
-    foot: (close) => [btn(t('Cancel'), close), btn(t('Pair screen'), safely(async () => {
-      await api.post('/screens/pair', { code: code.value, name: name.value, groupId, playlistId });
-      close(); toast(t('Screen paired')); refresh();
-    }), 'primary')],
+    foot: (close) => [btn(t('Done'), close, 'primary')],
   });
-  code.focus();
+  if (!noNetwork) poll();
 }
 
 function groupDialog(g, playlists) {
@@ -170,7 +232,7 @@ export async function screensPage({ mount, live, isCurrent }) {
     if (tab === 'screens') {
       body.replaceChildren(screens.length
         ? h('div', { class: 'wall' }, screens.map((s) => screenCard(s, openScreen)))
-        : empty(t('No screens yet'), t('Open the player on any display with a browser, then pair it with the code it shows.'), edit && btn(t('Add a screen'), () => addScreenDialog(groups, playlists), 'primary', 'plus')));
+        : empty(t('No screens yet'), t('Scan a QR code with a phone, or open a short address on a TV.'), edit && btn(t('Add a screen'), () => addScreenDialog(groups, playlists), 'primary', 'plus')));
     } else {
       body.replaceChildren(groups.length
         ? h('div', { class: 'table-wrap' }, h('table', {},

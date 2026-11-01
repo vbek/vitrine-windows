@@ -14,6 +14,7 @@ export const config = {
   maxUploadMb: Number(env.VITRINE_MAX_UPLOAD_MB || 2048),
   trustProxy: env.VITRINE_TRUST_PROXY === 'true',
   localSetup: env.VITRINE_LOCAL_SETUP === 'true',
+  shortAddress: env.VITRINE_SHORT_ADDRESS === 'true',
   ffmpeg: env.VITRINE_FFMPEG || 'ffmpeg',
   sessionDays: Number(env.VITRINE_SESSION_DAYS || 14),
   statsRetentionDays: Number(env.VITRINE_STATS_RETENTION_DAYS || 365),

@@ -7,9 +7,12 @@ START
 3. Keep the black window open while you use Vitrine. Closing it stops Vitrine.
 
 PHONES AND OTHER SCREENS
-The black window shows an address such as http://192.168.1.20:3400.
-Open it on a device on the same Wi-Fi to manage content. Add /tv to the end to use the device as a screen.
-This PC must be on, with Vitrine running. If Windows asks, allow Vitrine on private networks.
+In Vitrine, open Screens and choose Add a screen.
+Phone or tablet: scan the QR code with the camera and open the link. It connects by itself.
+TV: open its web browser and go to the address shown, such as 192.168.1.20/tv. The TV then appears on the PC. Click Connect.
+To manage content from another device, open the address in the black window, such as http://192.168.1.20:3400.
+Devices must be on the same Wi-Fi as this PC, and this PC must be on, with Vitrine running.
+If Windows asks, allow Vitrine on private networks. Turn off auto-lock on phones and tablets so they stay on.
 Traffic on your network isn't encrypted, so only use Vitrine on networks you trust.
 
 YOUR DATA

@@ -520,6 +520,8 @@ async function fetchManifest() {
     if (!isPreview) store.set(storeKey(), m);
     clearMessage();
     applyManifest(m);
+    // Without this, a screen that just connected is black and looks broken. A "screen off" rule stays black.
+    if (route === 'tv' && !m.fallback && !m.rules?.length) showMessage(`${m.screen?.name || 'This screen'} is connected`, 'Choose a playlist for it in Vitrine on your computer.');
   } catch {
     setOffline(true);
     if (!state.manifest) {
@@ -601,15 +603,17 @@ function showMessage(title, body) {
 }
 function clearMessage() { messageNode?.remove(); messageNode = null; }
 
-function showPairing(code) {
+function showPairing(code, listed) {
   clearMessage();
   messageNode = el('div', 'card');
   const mark = el('div', 'mark');
   mark.append(el('i'), document.createTextNode('Vitrine'));
   const codeEl = el('div', 'code');
   [...code].forEach((c) => codeEl.append(el('span', '', c)));
-  messageNode.append(mark, el('h1', '', 'Pair this screen'), codeEl,
-    el('p', '', `In the studio, open Screens, choose Add screen, and enter this code. Studio address: ${location.origin}`));
+  messageNode.append(mark, el('h1', '', 'Connect this screen'), codeEl,
+    el('p', '', listed
+      ? 'On the computer running Vitrine, open Screens and choose Add a screen. This screen appears there with this code. Click Connect.'
+      : `In the studio, open Screens, choose Add a screen, and enter this code. Studio address: ${location.origin}`));
   stage.append(messageNode);
 }
 
@@ -627,12 +631,16 @@ function newKey() {
 async function pairingLoop() {
   let key = store.get('deviceKey');
   if (!key) { key = newKey(); store.set('deviceKey', key); }
+  // From a scanned QR code. Out of the address bar at once, so reloads and bookmarks don't carry it.
+  let invite = param('invite');
+  if (invite) history.replaceState(null, '', location.pathname);
   for (;;) {
     try {
-      const res = await fetch('/player-api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) });
+      const res = await fetch('/player-api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, invite }) });
       const r = await res.json();
+      invite = null;
       if (r.paired) { clearMessage(); return key; }
-      if (r.code) showPairing(r.code);
+      if (r.code) showPairing(r.code, r.listed);
     } catch {
       // A paired device can run from its saved manifest; an unpaired one can only wait.
       if (store.get(storeKey())) return key;
@@ -658,6 +666,8 @@ function splash(brand) {
 // ---------- boot ----------
 async function boot() {
   applyDisplay();
+  // Browsers only allow full screen after a tap, which phones and tablets need to hide their address bar.
+  if (!isPreview) document.addEventListener('pointerdown', () => document.documentElement.requestFullscreen?.().catch(() => {}), { once: true });
   if (!isPreview && window.isSecureContext && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('/player-sw.js').catch(() => {});
   }
