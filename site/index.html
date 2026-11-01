@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vitrine for Windows</title>
+<meta name="description" content="Vitrine is free digital signage that runs on your own Windows PC. Download for Windows.">
+<script>
+  try { if (localStorage.getItem('theme') !== 'dark') document.documentElement.setAttribute('data-theme', 'light'); }
+  catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vitrine.css">
+</head>
+<body>
+<main class="wrap">
+  <a class="back" id="back" href="#" hidden>&larr; Back to Tools</a>
+
+  <header class="hero">
+    <h1>Vitrine</h1>
+    <p class="lead">Free digital signage that runs on your own PC. Upload images and videos, build playlists, schedule them, and show them on any screen with a browser.</p>
+    <div class="actions">
+      <a class="btn" id="download" href="#" aria-disabled="true">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M1 3.5 8.5 2.4v7.1H1zm8.5-1.2L19 1v8.5H9.5zM1 10.5h7.5v7.1L1 16.5zm8.5 0H19V19l-9.5-1.3z"/></svg>
+        Download for Windows
+      </a>
+      <p class="meta" id="meta">Windows 10 or 11, 64-bit</p>
+    </div>
+    <p class="note">Available for Windows PCs only. You can't install it on a phone, Mac or Linux computer.</p>
+  </header>
+
+  <section>
+    <h2>Get started</h2>
+    <ol class="steps">
+      <li><strong>Download</strong> the zip file.</li>
+      <li><strong>Extract it.</strong> Right-click the file and choose Extract All.</li>
+      <li><strong>Open "Start Vitrine"</strong> in the extracted folder. If Windows SmartScreen appears, choose More info, then Run anyway. It appears because this free app isn't code-signed.</li>
+      <li><strong>Create your owner account</strong> in the browser page that opens. Keep the black window open while you use Vitrine.</li>
+    </ol>
+  </section>
+
+  <section class="grid">
+    <article>
+      <h3>Your data stays on your PC</h3>
+      <p>The database and uploads are stored on your computer. This website never receives them. Vitrine contacts other services only for content you add, such as web pages, YouTube, news feeds and weather.</p>
+    </article>
+    <article>
+      <h3>Use your phone over Wi-Fi</h3>
+      <p>The black window shows an address to open on a phone or tablet on the same Wi-Fi. Use it to manage content, or add <code>/tv</code> to turn the device into a screen. The PC needs to stay on.</p>
+    </article>
+    <article>
+      <h3>Every browser sees the same data</h3>
+      <p>Chrome, Edge and Firefox on your PC all open the same local app, so your playlists and screens are the same in each.</p>
+    </article>
+  </section>
+
+  <section>
+    <h2>Good to know</h2>
+    <ul class="facts">
+      <li><strong>Network:</strong> if Windows asks, allow Vitrine on private networks so other devices can reach it. Connections on your network aren't encrypted, so use it only on networks you trust.</li>
+      <li><strong>Update:</strong> close Vitrine, delete the old folder, and extract the new version. Your data is kept.</li>
+      <li><strong>Uninstall:</strong> delete the folder. To remove your data too, delete <code>%LOCALAPPDATA%\Vitrine</code>.</li>
+      <li id="hash-row" hidden><strong>SHA-256:</strong> <code id="hash"></code></li>
+    </ul>
+  </section>
+</main>
+<script src="config.js"></script>
+<script src="release.js"></script>
+<script src="vitrine.js"></script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+// A compact OpenAPI description, generated from this table so it stays readable.
+const E = [
+  ['Content', 'get', '/content', 'List content'],
+  ['Content', 'post', '/content', 'Create non-file content (url, html, youtube, text, stream, folder, composition, plugin types)', { name: 'string', type: 'string', folderId: 'string', config: 'object', tags: 'array' }],
+  ['Content', 'post', '/content/upload', 'Upload an image or video (multipart: file, thumb, name, folderId, duration, width, height)'],
+  ['Content', 'get', '/content/{id}', 'Get one item and the playlists using it'],
+  ['Content', 'patch', '/content/{id}', 'Update an item', { name: 'string', folderId: 'string', config: 'object', tags: 'array', teamId: 'string' }],
+  ['Content', 'delete', '/content/{id}', 'Delete an item and its file'],
+  ['Content', 'get', '/folders', 'List library folders'],
+  ['Content', 'post', '/folders', 'Create a folder', { name: 'string', parentId: 'string' }],
+  ['Content', 'delete', '/folders/{id}', 'Delete a folder; its items move to the library root'],
+  ['Playlists', 'get', '/playlists', 'List playlists'],
+  ['Playlists', 'post', '/playlists', 'Create a playlist', { name: 'string', description: 'string', settings: 'object' }],
+  ['Playlists', 'get', '/playlists/{id}', 'Get a playlist with slides'],
+  ['Playlists', 'patch', '/playlists/{id}', 'Update name, description, settings (transition, speed, direction, bg, loop)', { name: 'string', description: 'string', settings: 'object', teamId: 'string' }],
+  ['Playlists', 'delete', '/playlists/{id}', 'Delete a playlist'],
+  ['Playlists', 'post', '/playlists/{id}/duplicate', 'Copy a playlist'],
+  ['Playlists', 'post', '/playlists/{id}/slides', 'Add slides', { items: 'array' }],
+  ['Playlists', 'patch', '/playlists/{id}/order', 'Reorder slides', { order: 'array' }],
+  ['Playlists', 'patch', '/slides/{id}', 'Update duration, enabled state, schedule', { duration: 'number', enabled: 'boolean', schedule: 'object' }],
+  ['Playlists', 'delete', '/slides/{id}', 'Remove a slide'],
+  ['Screens', 'get', '/screens', 'List screens with live status'],
+  ['Screens', 'post', '/screens/pair', 'Claim a screen with the code it displays', { code: 'string', name: 'string', location: 'string', groupId: 'string', playlistId: 'string' }],
+  ['Screens', 'patch', '/screens/{id}', 'Update a screen and its assignment', { name: 'string', location: 'string', groupId: 'string', playlistId: 'string', settings: 'object', teamId: 'string' }],
+  ['Screens', 'delete', '/screens/{id}', 'Unpair a screen'],
+  ['Screens', 'post', '/screens/{id}/command', 'Send reload, identify or refresh', { command: 'string' }],
+  ['Screens', 'get', '/groups', 'List groups'],
+  ['Screens', 'post', '/groups', 'Create a group', { name: 'string', playlistId: 'string' }],
+  ['Screens', 'patch', '/groups/{id}', 'Update a group', { name: 'string', playlistId: 'string', teamId: 'string' }],
+  ['Screens', 'delete', '/groups/{id}', 'Delete a group'],
+  ['Screens', 'get', '/rules', 'List dayparting rules (query: targetType, targetId)'],
+  ['Screens', 'post', '/rules', 'Create a rule; a null playlistId blanks the screen', { targetType: 'string', targetId: 'string', name: 'string', playlistId: 'string', days: 'array', from: 'string', to: 'string', startDate: 'string', endDate: 'string', priority: 'number' }],
+  ['Screens', 'delete', '/rules/{id}', 'Delete a rule'],
+  ['Broadcasts', 'get', '/broadcasts', 'List broadcasts'],
+  ['Broadcasts', 'post', '/broadcasts', 'Interrupt screens with a message', { title: 'string', message: 'string', style: 'string', layout: 'string', targets: 'object', minutes: 'number', startsAt: 'string' }],
+  ['Broadcasts', 'post', '/broadcasts/{id}/end', 'End a broadcast'],
+  ['Insights', 'get', '/overview', 'Dashboard summary'],
+  ['Insights', 'get', '/insights', 'Proof-of-play totals (query: days, screenId)'],
+  ['Insights', 'get', '/insights/export.csv', 'Proof-of-play CSV (query: days, screenId)'],
+  ['Admin', 'get', '/users', 'List users'],
+  ['Admin', 'post', '/users', 'Create a user', { username: 'string', name: 'string', password: 'string', role: 'string', teamId: 'string' }],
+  ['Admin', 'patch', '/users/{id}', 'Update a user', { name: 'string', role: 'string', teamId: 'string', active: 'boolean', password: 'string' }],
+  ['Admin', 'delete', '/users/{id}', 'Delete a user'],
+  ['Admin', 'get', '/teams', 'List teams'],
+  ['Admin', 'post', '/teams', 'Create a team', { name: 'string' }],
+  ['Admin', 'delete', '/teams/{id}', 'Delete a team'],
+  ['Admin', 'get', '/settings', 'Read settings'],
+  ['Admin', 'patch', '/settings', 'Change settings', { brandName: 'string', accent: 'string', publicPlayers: 'boolean', defaultDuration: 'number', defaultTransition: 'string', language: 'string' }],
+  ['Admin', 'get', '/plugins', 'List plugins'],
+  ['Admin', 'post', '/plugins/{id}/toggle', 'Turn a plugin on or off', { enabled: 'boolean' }],
+  ['Admin', 'get', '/webhooks', 'List webhooks'],
+  ['Admin', 'post', '/webhooks', 'Create a webhook', { url: 'string', events: 'array' }],
+  ['Admin', 'delete', '/webhooks/{id}', 'Delete a webhook'],
+  ['Admin', 'get', '/audit', 'Read the activity log (query: limit)'],
+  ['Admin', 'get', '/backup', 'Download a database snapshot (owner only)'],
+];
+
+export function openapi() {
+  const paths = {};
+  for (const [tag, method, p, summary, body] of E) {
+    const params = [...p.matchAll(/\{(\w+)\}/g)].map((m) => ({ name: m[1], in: 'path', required: true, schema: { type: 'string' } }));
+    (paths[p] ||= {})[method] = {
+      tags: [tag], summary, ...(params.length ? { parameters: params } : {}),
+      ...(body ? { requestBody: { content: { 'application/json': { schema: { type: 'object', properties: Object.fromEntries(Object.entries(body).map(([k, t]) => [k, { type: t }])) } } } } } : {}),
+      responses: { 200: { description: 'OK' }, 401: { description: 'Not signed in' }, 403: { description: 'Not permitted' } },
+    };
+  }
+  return {
+    openapi: '3.0.3',
+    info: { title: 'Vitrine API', version: '1.0.0', description: 'Send your token as: Authorization: Bearer vt_...' },
+    servers: [{ url: '/api' }],
+    security: [{ bearer: [] }],
+    components: { securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } } },
+    paths,
+  };
+}

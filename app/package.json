@@ -1,0 +1,26 @@
+{
+  "name": "vitrine",
+  "version": "1.0.0",
+  "description": "Self-hosted digital signage studio: content, playlists, screens, schedules.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
+    "i18n:check": "node scripts/i18n-check.js",
+    "reset-password": "node --disable-warning=ExperimentalWarning server/cli.js reset-password"
+  },
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.1.0",
+    "@fontsource-variable/instrument-sans": "^5.1.0",
+    "@fontsource-variable/jetbrains-mono": "^5.1.0",
+    "express": "^5.1.0",
+    "hls.js": "^1.5.17",
+    "multer": "^2.0.0",
+    "pdfjs-dist": "^4.10.38",
+    "qrcode": "^1.5.4",
+    "sortablejs": "^1.15.6"
+  }
+}

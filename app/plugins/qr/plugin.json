@@ -1,0 +1,12 @@
+{
+  "id": "qr", "name": "QR code", "version": "1.0.0",
+  "description": "Show a scannable code for a link, with a caption.",
+  "contentTypes": [
+    { "type": "qr", "label": "QR code", "fields": [
+      { "key": "url", "label": "Link", "type": "url", "default": "" },
+      { "key": "caption", "label": "Caption", "type": "text", "default": "Scan me" },
+      { "key": "color", "label": "Text color", "type": "color", "default": "#111111" },
+      { "key": "bg", "label": "Background", "type": "color", "default": "#ffffff" }
+    ] }
+  ]
+}

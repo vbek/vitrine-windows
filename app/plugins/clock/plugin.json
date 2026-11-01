@@ -1,0 +1,20 @@
+{
+  "id": "clock", "name": "Clock and countdown", "version": "1.0.0",
+  "description": "A large live clock, and a countdown to any date.",
+  "contentTypes": [
+    { "type": "clock", "label": "Clock", "fields": [
+      { "key": "format", "label": "Time format", "type": "select", "default": "24", "options": [{ "value": "24", "label": "24 hour" }, { "value": "12", "label": "12 hour" }] },
+      { "key": "seconds", "label": "Show seconds", "type": "checkbox", "default": false },
+      { "key": "date", "label": "Show date", "type": "checkbox", "default": true },
+      { "key": "color", "label": "Text color", "type": "color", "default": "#ffffff" },
+      { "key": "bg", "label": "Background", "type": "color", "default": "#111111" }
+    ] },
+    { "type": "countdown", "label": "Countdown", "fields": [
+      { "key": "title", "label": "Heading", "type": "text", "default": "Opening in" },
+      { "key": "target", "label": "Count down to", "type": "datetime-local", "default": "" },
+      { "key": "done", "label": "Message when finished", "type": "text", "default": "We are open" },
+      { "key": "color", "label": "Text color", "type": "color", "default": "#ffffff" },
+      { "key": "bg", "label": "Background", "type": "color", "default": "#111111" }
+    ] }
+  ]
+}

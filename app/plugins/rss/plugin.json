@@ -1,0 +1,13 @@
+{
+  "id": "rss", "name": "News feed", "version": "1.0.0",
+  "description": "Show headlines from an RSS or Atom feed as a ticker or list. Needs internet access on the server.",
+  "contentTypes": [
+    { "type": "rss", "label": "News feed", "fields": [
+      { "key": "url", "label": "Feed address", "type": "url", "default": "" },
+      { "key": "layout", "label": "Layout", "type": "select", "default": "ticker", "options": [{ "value": "ticker", "label": "Scrolling ticker" }, { "value": "list", "label": "Headline list" }] },
+      { "key": "limit", "label": "Headlines to show", "type": "number", "default": 10 },
+      { "key": "color", "label": "Text color", "type": "color", "default": "#ffffff" },
+      { "key": "bg", "label": "Background", "type": "color", "default": "#111111" }
+    ] }
+  ]
+}

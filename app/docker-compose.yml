@@ -1,0 +1,16 @@
+services:
+  vitrine:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3400:3400"
+    volumes:
+      - vitrine-data:/data
+      # Uncomment to play a USB drive or share with Folder content:
+      # - /media/usb:/media/usb:ro
+    # environment:
+    #   VITRINE_FOLDER_ROOTS: /media/usb
+    #   VITRINE_TRUST_PROXY: "true"   # only when behind a reverse proxy
+
+volumes:
+  vitrine-data:

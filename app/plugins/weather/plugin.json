@@ -1,0 +1,12 @@
+{
+  "id": "weather", "name": "Weather", "version": "1.0.0",
+  "description": "Current conditions and a 3-day forecast from Open-Meteo. Needs internet access on the server; no account required.",
+  "contentTypes": [
+    { "type": "weather", "label": "Weather", "fields": [
+      { "key": "city", "label": "City", "type": "text", "default": "" },
+      { "key": "units", "label": "Units", "type": "select", "default": "celsius", "options": [{ "value": "celsius", "label": "Celsius" }, { "value": "fahrenheit", "label": "Fahrenheit" }] },
+      { "key": "color", "label": "Text color", "type": "color", "default": "#ffffff" },
+      { "key": "bg", "label": "Background", "type": "color", "default": "#17324d" }
+    ] }
+  ]
+}
