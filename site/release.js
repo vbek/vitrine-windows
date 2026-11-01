@@ -1,6 +1,6 @@
 // Written by packaging/build.mjs. Do not edit by hand.
 window.VITRINE_RELEASE = {
-  "version": "1.0.2",
+  "version": "1.0.3",
   "sizeMb": 69,
-  "sha256": "4bb334b996ccda1540fc5c41c7cc1a8922e217a78123e2403a48f36f76b9fca5"
+  "sha256": "3fca56a1c84fd4d6d555be19c12a0712db1ffcfa10225bea016d90486cb76081"
 };
