@@ -1,6 +1,6 @@
 {
   "name": "vitrine",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Self-hosted digital signage studio: content, playlists, screens, schedules.",
   "type": "module",
   "private": true,
