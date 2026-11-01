@@ -50,6 +50,7 @@ const mediaDb = (() => {
 })();
 
 const cachedUrls = new Set();
+const brokenCopies = new Set(); // saved copies this browser could not display
 let caching = false;
 async function syncMediaCache(manifest) {
   if (isPreview || caching) return;
@@ -60,7 +61,7 @@ async function syncMediaCache(manifest) {
     Object.values(manifest.playlists).forEach((p) => walk(p.slides));
     const have = new Set(await mediaDb.keys());
     for (const k of have) if (!wanted.has(k)) await mediaDb.del(k);
-    for (const k of have) if (wanted.has(k)) cachedUrls.add(k);
+    for (const k of have) if (wanted.has(k) && !brokenCopies.has(k)) cachedUrls.add(k);
     for (const url of wanted) {
       if (have.has(url)) continue;
       try {
@@ -87,6 +88,24 @@ async function localUrl(url) {
   return { src: url, release() {} };
 }
 
+// Some browsers, notably on iPhones, can store a file but fail to display the saved copy, or never
+// report back at all. When that happens, fall back to the server's copy.
+async function loadMedia(url, load) {
+  const local = await localUrl(url);
+  if (local.src === url) { await load(url); return local; }
+  try {
+    await Promise.race([load(local.src), sleep(8000).then(() => { throw new Error('timed out'); })]);
+    return local;
+  } catch (e) {
+    console.warn('Saved copy failed, using the server', url, e.message);
+    local.release();
+    cachedUrls.delete(url);
+    brokenCopies.add(url);
+    await load(url);
+    return { src: url, release() {} };
+  }
+}
+
 // ---------- renderers ----------
 let hlsLoading;
 const loadHls = () => (hlsLoading ||= new Promise((res, rej) => {
@@ -107,9 +126,8 @@ function mount(slide) {
       const img = el('img', `fit-${slide.fit || 'contain'}`);
       img.alt = '';
       ready = (async () => {
-        const local = await localUrl(slide.url);
+        const local = await loadMedia(slide.url, (src) => new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('The picture could not be loaded')); img.src = src; }));
         cleanup = local.release;
-        await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('image failed')); img.src = local.src; });
       })();
       node.append(img);
       break;
@@ -117,10 +135,12 @@ function mount(slide) {
     case 'video': {
       const v = el('video', `fit-${slide.fit || 'contain'}`);
       v.playsInline = true; v.preload = 'auto'; v.muted = slide.muted !== false;
+      v.setAttribute('playsinline', ''); // iPhones can hold back loadeddata until playback, but do report metadata
       ready = (async () => {
-        const local = await localUrl(slide.url);
-        cleanup = () => { v.pause(); v.removeAttribute('src'); v.load(); local.release(); };
-        await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('video failed')); v.src = local.src; });
+        let release = () => {};
+        cleanup = () => { v.pause(); v.removeAttribute('src'); v.load(); release(); };
+        const local = await loadMedia(slide.url, (src) => new Promise((res, rej) => { v.onloadeddata = res; v.onloadedmetadata = res; v.onerror = () => rej(new Error('This device cannot play this video')); v.src = src; }));
+        release = local.release;
       })();
       start = (onEnd) => {
         v.onended = slide.duration > 0 ? () => { v.currentTime = 0; v.play().catch(() => {}); } : onEnd;
@@ -320,11 +340,12 @@ class Sequencer {
       this.lastId = slide.id;
       const m = mount(slide);
       try {
-        await Promise.race([m.ready, sleep(12000)]);
-        await m.ready;
+        await Promise.race([m.ready, sleep(30000).then(() => { throw new Error('It took too long to load'); })]);
       } catch (e) {
+        m.ready.catch(() => {}); // it may still fail after the time limit
         console.warn('Skipping slide', slide.name, e.message);
         m.stop();
+        this.opts.onError?.(slide, e);
         await this.wait(1500);
         continue;
       }
@@ -398,7 +419,7 @@ class Sequencer {
 // ---------- app state ----------
 const state = {
   manifest: null, offline: false, offlineReady: false, seq: null, activeId: undefined, playEvents: store.get('events') || [],
-  deviceKey: null, transition: {}, nowPlaying: null, params: {}, loopCount: 0,
+  deviceKey: null, transition: {}, nowPlaying: null, params: {}, loopCount: 0, slideError: null, mirror: null,
 };
 
 function currentPlaylist() {
@@ -433,10 +454,16 @@ function updateTransition() {
 
 // The main sequencer reads the current playlist each step, so edits and dayparting apply at slide boundaries.
 function startSequencer() {
-  if (state.seq) return;
+  if (state.seq || state.mirror) return;
   state.seq = new Sequencer(stage, () => currentPlaylist()?.slides || [], {
     loop: () => state.loopCount,
+    onError(slide, e) {
+      state.slideError = `${slide.name}: ${e.message}`;
+      showMessage(`Can't show "${slide.name}"`, e.message);
+      heartbeat();
+    },
     onPlay(slide) {
+      if (state.slideError) { state.slideError = null; clearMessage(); }
       state.nowPlaying = slide;
       debugLine();
       heartbeat();
@@ -545,14 +572,52 @@ let source;
 function connectEvents() {
   const url = state.deviceKey ? `/player-api/events?key=${encodeURIComponent(state.deviceKey)}` : '/player-api/events';
   source = new EventSource(url);
-  source.onopen = () => { if (state.offline) { fetchManifest(); heartbeat(); } };
+  source.onopen = () => { checkMirror(); if (state.offline) { fetchManifest(); heartbeat(); } };
   source.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'refresh') fetchManifest();
     if (msg.type === 'reload') location.reload();
     if (msg.type === 'identify') identify(msg.name);
     if (msg.type === 'unpaired') unpair();
+    if (msg.type === 'mirror') startMirror(msg.id);
+    if (msg.type === 'mirror-stop') stopMirror();
   };
+}
+
+// ---------- mirroring: shows a computer's screen in place of the playlist ----------
+async function checkMirror() {
+  if (!state.deviceKey) return;
+  try {
+    const r = await (await fetch('/player-api/mirror', { headers: { 'x-device-key': state.deviceKey }, cache: 'no-store' })).json();
+    if (r.id) startMirror(r.id); else stopMirror();
+  } catch { /* checked again when the connection returns */ }
+}
+
+function startMirror(id) {
+  if (state.mirror?.id === id) return;
+  state.mirror?.node.remove();
+  // Stop the playlist so its video and sound don't carry on underneath.
+  state.seq?.stop();
+  state.seq = null;
+  state.nowPlaying = { name: 'Screen mirroring' };
+  clearMessage();
+  const node = el('div', 'mirror');
+  const img = el('img');
+  img.alt = '';
+  img.src = `/player-api/mirror/${encodeURIComponent(id)}/stream?key=${encodeURIComponent(state.deviceKey)}`;
+  node.append(img);
+  stage.append(node);
+  state.mirror = { id, node };
+  heartbeat();
+}
+
+function stopMirror() {
+  if (!state.mirror) return;
+  state.mirror.node.querySelector('img').removeAttribute('src');
+  state.mirror.node.remove();
+  state.mirror = null;
+  state.nowPlaying = null;
+  startSequencer();
 }
 
 function identify(name) {
@@ -572,7 +637,7 @@ async function heartbeat() {
       body: JSON.stringify({
         resolution: `${screen.width}x${screen.height}`,
         nowPlaying: state.nowPlaying?.name, nowPlayingId: state.nowPlaying?.contentId,
-        offlineReady: state.offlineReady, events,
+        offlineReady: state.offlineReady, events, error: state.slideError,
       }),
     });
     if (!res.ok) throw new Error(res.status);

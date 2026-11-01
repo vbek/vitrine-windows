@@ -1,6 +1,6 @@
 // Screens, groups, dayparting rules, broadcasts, and the player-facing endpoints.
 import crypto from 'node:crypto';
-import { Router } from 'express';
+import express, { Router } from 'express';
 import QRCode from 'qrcode';
 import { config } from '../config.js';
 import { all, get, run, id, now, parse, tx, getSettings } from '../db.js';
@@ -13,6 +13,9 @@ export const playerApi = Router();
 const deviceArea = requireArea('device');
 const OFFLINE_AFTER_MS = 90e3;
 
+// What each screen last reported it couldn't show. Only useful while it's happening, so it isn't stored.
+const playerErrors = new Map();
+
 function screenOut(s) {
   const group = s.group_id ? get('SELECT id,name,playlist_id FROM screen_groups WHERE id=?', s.group_id) : null;
   const effective = s.playlist_id || group?.playlist_id || null;
@@ -23,6 +26,7 @@ function screenOut(s) {
     ip: s.ip, userAgent: s.user_agent, resolution: s.resolution, nowPlaying: s.now_playing, nowPlayingId: s.now_playing_id,
     nowPlayingThumb: s.now_playing_id ? thumbOf(s.now_playing_id) : null, offlineReady: Boolean(s.offline_ready), createdAt: s.created_at,
     ruleCount: get("SELECT COUNT(*) AS n FROM rules WHERE target_type='screen' AND target_id=?", s.id).n,
+    playerError: playerErrors.get(s.id) || null,
   };
 }
 function thumbOf(contentId) {
@@ -128,6 +132,66 @@ fleet.delete('/screens/:id', deviceArea, (req, res) => {
   audit(req, 'screen.removed', s.name);
   res.json({ ok: true });
 });
+
+// ---------- mirroring ----------
+// Pictures of someone's screen are relayed live and never written to disk.
+const mirrors = new Map();
+const MIRROR_IDLE_MS = 15e3;
+const mirrorFor = (screenId) => [...mirrors.values()].find((m) => m.screens.has(screenId));
+
+function endMirror(m) {
+  mirrors.delete(m.id);
+  for (const viewer of m.viewers) viewer.end();
+  for (const sid of m.screens) sendToScreen(sid, { type: 'mirror-stop' });
+}
+// The sender sends continuously, so silence means its tab closed or the computer went to sleep.
+setInterval(() => {
+  for (const m of mirrors.values()) if (Date.now() - m.lastFrame > MIRROR_IDLE_MS) endMirror(m);
+}, 5e3).unref();
+
+fleet.post('/mirror', deviceArea, (req, res) => {
+  const ids = Array.isArray(req.body?.screenIds) ? req.body.screenIds.map(String) : [];
+  if (!ids.length) throw new HttpError(400, 'Choose at least one screen');
+  const rows = ids.map((sid) => loadScoped(req, 'screens', sid));
+  for (const s of rows) {
+    const earlier = mirrorFor(s.id);
+    if (!earlier) continue;
+    earlier.screens.delete(s.id);
+    if (!earlier.screens.size) endMirror(earlier);
+  }
+  const m = { id: id(), userId: req.user.id, screens: new Set(ids), viewers: new Set(), frame: null, lastFrame: Date.now() };
+  mirrors.set(m.id, m);
+  for (const sid of ids) sendToScreen(sid, { type: 'mirror', id: m.id });
+  audit(req, 'screen.mirror', rows.map((s) => s.name).join(', '));
+  res.status(201).json({ id: m.id });
+});
+
+const ownMirror = (req) => {
+  const m = mirrors.get(req.params.id);
+  if (!m || m.userId !== req.user.id) throw new HttpError(404, 'Mirroring has ended');
+  return m;
+};
+
+fleet.post('/mirror/:id/frame', deviceArea, express.raw({ type: 'image/jpeg', limit: '8mb' }), (req, res) => {
+  const m = ownMirror(req);
+  if (!Buffer.isBuffer(req.body) || !req.body.length) throw new HttpError(400, 'No picture received');
+  m.frame = req.body;
+  m.lastFrame = Date.now();
+  // A slow screen skips frames rather than falling further and further behind.
+  for (const viewer of m.viewers) if (!viewer.writableNeedDrain) writeFrame(viewer, m.frame);
+  res.json({ ok: true });
+});
+
+fleet.delete('/mirror/:id', deviceArea, (req, res) => {
+  endMirror(ownMirror(req));
+  res.json({ ok: true });
+});
+
+function writeFrame(res, frame) {
+  res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.length}\r\n\r\n`);
+  res.write(frame);
+  res.write('\r\n');
+}
 
 const COMMANDS = new Set(['reload', 'identify', 'refresh']);
 fleet.post('/screens/:id/command', deviceArea, (req, res) => {
@@ -387,10 +451,29 @@ playerApi.get('/events', (req, res) => {
   addPlayerStream(req, res, screen?.id ?? null);
 });
 
+playerApi.get('/mirror', (req, res) => {
+  const screen = screenByKey(req.get('x-device-key'));
+  if (!screen) throw new HttpError(404, 'Unknown device');
+  res.set('Cache-Control', 'no-store').json({ id: mirrorFor(screen.id)?.id || null });
+});
+
+// A plain <img> can show this stream, so it works in TV browsers without any video support.
+playerApi.get('/mirror/:id/stream', (req, res) => {
+  const screen = screenByKey(req.query.key);
+  const m = mirrors.get(req.params.id);
+  if (!screen || !m?.screens.has(screen.id)) throw new HttpError(404, 'Not found');
+  res.set({ 'Content-Type': 'multipart/x-mixed-replace; boundary=frame', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+  res.flushHeaders();
+  if (m.frame) writeFrame(res, m.frame);
+  m.viewers.add(res);
+  req.on('close', () => m.viewers.delete(res));
+});
+
 playerApi.post('/heartbeat', (req, res) => {
   const screen = screenByKey(req.get('x-device-key'));
   if (!screen) throw new HttpError(404, 'Unknown device');
-  const { resolution, nowPlaying, nowPlayingId, offlineReady, events } = req.body || {};
+  const { resolution, nowPlaying, nowPlayingId, offlineReady, events, error } = req.body || {};
+  if (error) playerErrors.set(screen.id, String(error).slice(0, 300)); else playerErrors.delete(screen.id);
   const wasOffline = !screen.online;
   run('UPDATE screens SET last_seen=?, online=1, ip=?, user_agent=?, resolution=?, now_playing=?, now_playing_id=?, offline_ready=? WHERE id=?',
     now(), req.ip, String(req.get('user-agent') || '').slice(0, 255), resolution ? String(resolution).slice(0, 20) : null,

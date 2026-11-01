@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { can, refresh, screenOrigin } from '../app.js';
 import { screenCard } from './today.js';
+import { mirrorDialog } from '../mirror.js';
 
 let tab = 'screens';
 
@@ -66,11 +67,13 @@ export async function openScreen(s) {
         h('span', { class: `chip ${s.online ? 'live' : ''}` }, h('span', { class: `dot ${s.online ? 'on' : ''}` }), s.online ? t('On air') : t('Offline')),
         s.nowPlaying && h('span', { class: 'chip clip' }, s.nowPlaying),
         s.offlineReady && h('span', { class: 'chip' }, icon('check'), t('Ready for offline')),
+        s.online && s.playerError && h('span', { class: 'chip', role: 'alert' }, s.playerError),
         h('span', { class: 'small muted' }, `${t('Last seen')} ${timeAgo(s.lastSeen)}`)),
       edit && h('div', { class: 'row' },
         btn(t('Identify'), send('identify', t('Showing the name on screen')), 'sm'),
         btn(t('Refresh content'), send('refresh', t('Refreshing')), 'sm', 'refresh'),
-        btn(t('Reload player'), send('reload', t('Reloading')), 'sm')),
+        btn(t('Reload player'), send('reload', t('Reloading')), 'sm'),
+        btn(t('Mirror this computer'), () => mirrorDialog([s], [s.id]), 'sm', 'screens')),
       h('div', { class: 'grid2' }, field(t('Name'), name), field(t('Location'), location_)),
       h('div', { class: 'grid2' },
         field(t('Group'), select(options(groups, t('No group')), groupId, (v) => { groupId = v; })),
@@ -225,9 +228,9 @@ export async function screensPage({ mount, live, isCurrent }) {
     tabs.replaceChildren(
       h('button', { type: 'button', class: tab === 'screens' ? 'on' : '', onclick: () => { tab = 'screens'; draw(); } }, `${t('Screens')} (${screens.length})`),
       h('button', { type: 'button', class: tab === 'groups' ? 'on' : '', onclick: () => { tab = 'groups'; draw(); } }, `${t('Groups')} (${groups.length})`));
-    actions.replaceChildren(edit ? (tab === 'screens'
-      ? btn(t('Add a screen'), () => addScreenDialog(groups, playlists), 'primary', 'plus')
-      : btn(t('New group'), () => groupDialog(null, playlists), 'primary', 'plus')) : '');
+    actions.replaceChildren(...(edit ? (tab === 'screens'
+      ? [screens.length > 0 && btn(t('Mirror this computer'), () => mirrorDialog(screens), '', 'screens'), btn(t('Add a screen'), () => addScreenDialog(groups, playlists), 'primary', 'plus')].filter(Boolean)
+      : [btn(t('New group'), () => groupDialog(null, playlists), 'primary', 'plus')]) : []));
 
     if (tab === 'screens') {
       body.replaceChildren(screens.length

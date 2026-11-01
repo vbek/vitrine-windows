@@ -225,6 +225,41 @@ test('QR invites: pair a device directly, once, and only for signed-in users', a
   assert.deepEqual((await owner.get('/api/screens/waiting')).body, { supported: false, waiting: [] }, 'no device list on a server install');
 });
 
+test('mirroring: relays frames only to chosen screens, and only for signed-in users', async () => {
+  const keyA = 'device-key-mirrormirrormirrormirrora', keyB = 'device-key-mirrormirrormirrormirrorb';
+  const a = await pairDevice(keyA, 'Mirror A');
+  await pairDevice(keyB, 'Mirror B');
+  assert.equal((await anon.post('/api/mirror', { screenIds: [a.id] })).status, 401);
+  assert.equal((await owner.post('/api/mirror', { screenIds: [] })).status, 400);
+  assert.equal((await owner.post('/api/mirror', { screenIds: ['nope'] })).status, 404);
+  const { id } = (await owner.post('/api/mirror', { screenIds: [a.id] })).body;
+  assert.equal((await anon.get('/player-api/mirror', { 'x-device-key': keyA })).body.id, id);
+  assert.equal((await anon.get('/player-api/mirror', { 'x-device-key': keyB })).body.id, null);
+  const sendFrame = (headers) => fetch(`${base}/api/mirror/${id}/frame`, { method: 'POST', headers: { 'Content-Type': 'image/jpeg', ...headers }, body: Buffer.from('frame-bytes') });
+  assert.equal((await sendFrame({})).status, 401);
+  assert.equal((await sendFrame({ cookie: owner.cookie })).status, 200);
+  assert.equal((await anon.get(`/player-api/mirror/${id}/stream?key=${keyB}`)).status, 404, 'other screens cannot watch');
+  const watching = new AbortController();
+  const stream = await fetch(`${base}/player-api/mirror/${id}/stream?key=${keyA}`, { signal: watching.signal });
+  assert.match(stream.headers.get('content-type'), /multipart\/x-mixed-replace/);
+  const { value } = await stream.body.getReader().read();
+  assert.match(Buffer.from(value).toString(), /--frame/);
+  watching.abort();
+  assert.equal((await owner.del(`/api/mirror/${id}`)).status, 200);
+  assert.equal((await anon.get('/player-api/mirror', { 'x-device-key': keyA })).body.id, null);
+  assert.equal((await sendFrame({ cookie: owner.cookie })).status, 404, 'ended');
+});
+
+test('heartbeat errors show on the screen, and clear when it recovers', async () => {
+  const key = 'device-key-errorerrorerrorerrorerror';
+  const s = await pairDevice(key, 'Failing');
+  const reported = async () => (await owner.get('/api/screens')).body.find((x) => x.id === s.id).playerError;
+  await anon.post('/player-api/heartbeat', { error: 'profile: The picture could not be loaded' }, { 'x-device-key': key });
+  assert.equal(await reported(), 'profile: The picture could not be loaded');
+  await anon.post('/player-api/heartbeat', {}, { 'x-device-key': key });
+  assert.equal(await reported(), null);
+});
+
 test('screen resolution: own playlist beats group, rules are delivered, removal unpairs', async () => {
   const p1 = (await owner.post('/api/playlists', { name: 'p1' })).body;
   const p2 = (await owner.post('/api/playlists', { name: 'p2' })).body;

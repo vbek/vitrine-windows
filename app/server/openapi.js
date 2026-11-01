@@ -24,6 +24,8 @@ const E = [
   ['Screens', 'patch', '/screens/{id}', 'Update a screen and its assignment', { name: 'string', location: 'string', groupId: 'string', playlistId: 'string', settings: 'object', teamId: 'string' }],
   ['Screens', 'delete', '/screens/{id}', 'Unpair a screen'],
   ['Screens', 'post', '/screens/{id}/command', 'Send reload, identify or refresh', { command: 'string' }],
+  ['Screens', 'post', '/mirror', 'Start showing live JPEG frames on screens', { screenIds: 'array' }],
+  ['Screens', 'delete', '/mirror/{id}', 'Stop mirroring'],
   ['Screens', 'get', '/groups', 'List groups'],
   ['Screens', 'post', '/groups', 'Create a group', { name: 'string', playlistId: 'string' }],
   ['Screens', 'patch', '/groups/{id}', 'Update a group', { name: 'string', playlistId: 'string', teamId: 'string' }],

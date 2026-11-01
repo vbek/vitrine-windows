@@ -68,6 +68,9 @@ body.locked iframe, body.locked video { pointer-events: none; }
 .splash { transition: opacity .6s; }
 .splash.gone { opacity: 0; pointer-events: none; }
 
+.mirror { position: absolute; inset: 0; z-index: 45; background: #000; }
+.mirror img { width: 100%; height: 100%; display: block; object-fit: contain; }
+
 .identify { position: absolute; inset: 0; z-index: 48; display: flex; align-items: center; justify-content: center; background: #e4572e; color: #fff; font: 700 9cqw/1.1 'Bricolage', system-ui, sans-serif; text-align: center; padding: 5cqw; }
 .debug { position: absolute; left: 1cqw; bottom: 1cqw; z-index: 70; background: rgba(0, 0, 0, .75); color: #9fe; font: 12px/1.4 ui-monospace, monospace; padding: 8px 10px; white-space: pre; pointer-events: none; }
 .offline-dot { position: absolute; right: 1cqw; top: 1cqw; z-index: 45; width: 1cqw; height: 1cqw; min-width: 8px; min-height: 8px; border-radius: 50%; background: #f2b203; box-shadow: 0 0 0 2px rgba(0,0,0,.5); display: none; }
